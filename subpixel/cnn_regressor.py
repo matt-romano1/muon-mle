@@ -5,11 +5,28 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
-
+import matplotlib.pyplot as plt
 # Load dataset
 df = pd.read_csv("energy_maps_with_labels.csv")
 X = df.iloc[:, :-2].values.reshape(-1, 1, 8, 8).astype(np.float32)
 y = df[["x_true", "y_true"]].values.astype(np.float32)
+
+
+# Plot results
+num_samples = 5
+fig, axs = plt.subplots(1, num_samples, figsize=(15, 3))
+for i, (emap, (x_, y_)) in enumerate(zip(np.squeeze(X[:num_samples]), y[:num_samples])):
+    axs[i].imshow(emap, cmap='hot', interpolation='nearest')
+    axs[i].set_title(f"x={x_:.2f}, y={y_:.2f}")
+    axs[i].axis('off')
+plt.tight_layout()
+plt.show()
+
+# Print out the range of true positions
+x_min, x_max = np.min(y[:, 0]), np.max(y[:, 0])
+y_min, y_max = np.min(y[:, 1]), np.max(y[:, 1])
+print(f"x_true ranges from {x_min:.2f} to {x_max:.2f}")
+print(f"y_true ranges from {y_min:.2f} to {y_max:.2f}")
 
 # Split
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
