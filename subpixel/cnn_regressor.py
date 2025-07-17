@@ -40,8 +40,8 @@ X_train, X_test, y_train, y_test = train_test_split(
 ############################################ centroid method #########################################
 # Parameters of detector
 n_pix = 8
-min_edge = -7.5
-max_edge = +7.5
+min_edge = -25
+max_edge = +25
 
 pixel_width = (max_edge - min_edge) / n_pix    # = 15/8 = 1.875
 sigma_pixels = 0.7
@@ -92,8 +92,10 @@ class CNNSubPixelRegressor(nn.Module):
         self.model = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=3, padding=1),
             nn.ReLU(),
+            nn.Dropout(0.4),
             nn.Conv2d(16, 32, kernel_size=3, padding=1),
             nn.ReLU(),
+            nn.Dropout(0.4),
             nn.Flatten(),
             nn.Linear(32 * 8 * 8, 64),
             nn.ReLU(),
@@ -108,11 +110,13 @@ class CNNSubPixelRegressor(nn.Module):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = CNNSubPixelRegressor().to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+
+train_losses, val_losses, val_mae, val_dist_errors = [], [], [], []
 
 for epoch in range(30):
     model.train()
-    total_loss = 0.0
+    total_train_loss = 0.0
     for xb, yb in train_loader:
         xb, yb = xb.to(device), yb.to(device)
         optimizer.zero_grad()
@@ -120,25 +124,32 @@ for epoch in range(30):
         loss = criterion(pred, yb)
         loss.backward()
         optimizer.step()
-        total_loss += loss.item() * xb.size(0)
-    avg_loss = total_loss / len(train_loader.dataset)
-    print(f"Epoch {epoch+1}: Loss = {avg_loss:.4f}")
+        total_train_loss += loss.item() * xb.size(0)
+    avg_train_loss = total_train_loss / len(train_loader.dataset)
+    train_losses.append(avg_train_loss)
 
-# Inference
-model.eval()
-with torch.no_grad():
-    xb, yb = next(iter(test_loader))
-    xb = xb.to(device)
-    preds = model(xb).cpu().numpy()
-    gt = yb.numpy()
-
-    for i in range(5):
-        print(
-            f"Pred: ({preds[i][0]:.2f}, {preds[i][1]:.2f}) | True: ({gt[i][0]:.2f}, {gt[i][1]:.2f})")
-
-    # Calculate mean distance error
-    distances = np.linalg.norm(preds - gt, axis=1)
-    mean_distance_error = np.mean(distances)
+    # Validation
+    model.eval()
+    val_loss, mae, dist_err = 0.0, 0.0, 0.0
+    with torch.no_grad():
+        for xb, yb in test_loader:
+            xb, yb = xb.to(device), yb.to(device)
+            pred = model(xb)
+            val_loss += criterion(pred, yb).item() * xb.size(0)
+            mae += torch.mean(torch.abs(pred - yb), dim=1).sum().item()
+            dist_err += torch.norm(pred - yb, dim=1).sum().item()
+    val_loss /= len(test_loader.dataset)
+    mae /= len(test_loader.dataset)
+    dist_err /= len(test_loader.dataset)
+    val_losses.append(val_loss)
+    val_mae.append(mae)
+    val_dist_errors.append(dist_err)
+    print(f"Epoch {epoch+1}: Train Loss={avg_train_loss:.4f}, Val Loss={val_loss:.4f}, MAE={mae:.3f}, Dist Err={dist_err:.3f}")
     
-print(f"centroid mean distance error: {mean_distance_error_c:.4f}")
-print(f"cnn mean distance error: {mean_distance_error:.4f}")
+
+plt.plot(train_losses, label="Train Loss")
+plt.plot(val_losses, label="Val Loss")
+plt.plot(val_mae, label="Val MAE")
+plt.plot(val_dist_errors, label="Val Distance Error")
+plt.legend(); plt.xlabel("Epoch"); plt.ylabel("Metric"); plt.show()
+
